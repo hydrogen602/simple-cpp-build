@@ -2,8 +2,9 @@ from pathlib import Path
 from typing import List, Set, Tuple
 import subprocess
 import sys
-import re
 from shutil import get_terminal_size
+
+from dependency import DependencyTree
 
 
 settings = {
@@ -53,12 +54,6 @@ def print_if_verbose(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def get_local_dependencies(path: Path) -> List[Path]:
-    with path.open() as f:
-        includes = re.findall(r'^[ \t]*#[ \t]*include[ \t]*"([^"]*)"', f.read(), flags=re.MULTILINE)
-    return [path.parent / Path(p) for p in includes]
-
-
 def compile(path: Path) -> Tuple[Path, bool]:
     '''
     Returns object file and if it recompiled or not
@@ -73,8 +68,8 @@ def compile(path: Path) -> Tuple[Path, bool]:
 
         if obj_file.exists() and obj_file.stat().st_mtime > path.stat().st_mtime:
             last_compiled = obj_file.stat().st_mtime
-            headers = get_local_dependencies(path)
-            if all(h.exists() and last_compiled > h.stat().st_mtime for h in headers):
+
+            if not DependencyTree(path).was_updated_after(last_compiled):
                 print_if_verbose(f'Skipping recompilation for {pre_abs}')
                 return obj_file, False
 
@@ -184,18 +179,6 @@ def clean():
             f.unlink()
 
 
-def print_dep(file: Path, depth: int = 0, seen_dependencies: Set[Path] = set()):
-    ls = get_local_dependencies(file)
-    preMain = '  ' * (depth) + ('- ' * (depth > 0))
-    print(f'{preMain}{file}')
-    twice = seen_dependencies.intersection(ls)
-    if twice:
-        raise Exception(f'Circular dependency detected: {twice}')
-
-    for e in ls:
-        print_dep(e, depth+1, seen_dependencies.union((e,)))
-
-
 if __name__ == '__main__':
     exclude_args = sys.argv[1:]
     if '--verbose' in exclude_args:
@@ -207,7 +190,8 @@ if __name__ == '__main__':
     elif '--dep' in exclude_args:
         arg_index = exclude_args.index('--dep') + 1  # next argument
         file = Path(settings['main'] if arg_index >= len(exclude_args) else exclude_args[arg_index])
-        print_dep(file)
+
+        DependencyTree(file).print()
     else:
         exclude_args += settings['excludes']
         exclude_args = [arg + '*' if arg.endswith('/') else arg for arg in exclude_args]
