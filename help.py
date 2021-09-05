@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Set, Tuple
 import subprocess
 import sys
 import re
@@ -29,24 +29,14 @@ settings = {
         'colors.cpp',
         'test_graphics.cpp'
     ],
-    'verbose': False
+    'verbose': False,
+    'main': 'main.cpp'
 }
 
 
 def get_all_with_ending(ending: str, root: Path, exclude: List[str] = []) -> List[Path]:
-    
-    all_files = filter(lambda x: not any(x.match(glob) for glob in exclude), root.rglob('*.' + ending))
-
-    # def recurse(path: Path):
-    #     ls = []
-    #     for p in path.iterdir():
-    #         if p.is_dir():
-    #             ls += recurse(p)
-    #         elif p.suffix == '.' + ending:
-    #             ls.append(p)
-    #     return ls
-    # return recurse(root)
-    return list(all_files)
+    all_files = [x for x in root.rglob('*.' + ending) if not any(x.match(glob) for glob in exclude)]
+    return all_files
 
 
 def print_if_something(s: str, always: bool = False):
@@ -98,7 +88,7 @@ def compile(path: Path) -> Tuple[Path, bool]:
         return obj_file, True
     else:
         raise ValueError(f'No compiler found for suffix: "{path.suffix}"')
-            
+
 
 def final_compile(main_path: Path, all_objects: List[Path]) -> str:
     compiler = settings['compilers'].get(main_path.suffix)
@@ -126,10 +116,10 @@ def main(exclude_args: List[str]):
 
     all_files = get_all_with_ending('cpp', root, exclude=exclude_args)
 
-    main = root / 'main.cpp'
+    main = root / settings['main']
 
     if not main.exists():
-        print('Error: Could not find main.cpp')
+        print(f'Error: Could not find {settings["main"]}')
         return
 
     for i in all_files:
@@ -138,7 +128,7 @@ def main(exclude_args: List[str]):
 
     if not settings['verbose']:
         bar = ProgressBar(len(all_files) + 1)  # +1 for final creation of the executable
-        
+
         bar.update_progress_bar(init=True)
         update_progress_bar = bar.update_progress_bar
     else:
@@ -157,7 +147,7 @@ def main(exclude_args: List[str]):
     except subprocess.CalledProcessError:
         print('Something went wrong... :(')
         return
-    
+
     if not settings['verbose']:
         print()
 
@@ -170,7 +160,7 @@ class ProgressBar:
         self.cols: int = self.cols - 4 - 8
         self.compile_count: int = compile_count
         self.cols_per_file: float = self.cols / compile_count
-    
+
     def update_progress_bar(self, *args, init: bool = False):
         if not init:
             self.files_done += 1
@@ -194,6 +184,16 @@ def clean():
             f.unlink()
 
 
+def print_dep(file: Path, depth: int = 0, seen_dependencies: Set[Path] = set()):
+    ls = get_local_dependencies(file)
+    preMain = '  ' * (depth) + ('- ' * (depth > 0))
+    print(f'{preMain}{file}')
+    twice = seen_dependencies.intersection(ls)
+    if twice:
+        raise Exception(f'Circular dependency detected: {twice}')
+
+    for e in ls:
+        print_dep(e, depth+1, seen_dependencies.union((e,)))
 
 
 if __name__ == '__main__':
@@ -204,6 +204,10 @@ if __name__ == '__main__':
 
     if '--clean' in exclude_args:
         clean()
+    elif '--dep' in exclude_args:
+        arg_index = exclude_args.index('--dep') + 1  # next argument
+        file = Path(settings['main'] if arg_index >= len(exclude_args) else exclude_args[arg_index])
+        print_dep(file)
     else:
         exclude_args += settings['excludes']
         exclude_args = [arg + '*' if arg.endswith('/') else arg for arg in exclude_args]
