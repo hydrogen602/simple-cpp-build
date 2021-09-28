@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from pathlib import Path
 from typing import List, Set, Tuple
 import subprocess
@@ -77,7 +78,7 @@ def compile(path: Path) -> Tuple[Path, bool]:
         print_if_verbose(' '.join(args))
         result = subprocess.run(args, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         print_if_something(result.stdout.decode())
-        print_if_something(result.stderr.decode())
+        print_if_something(result.stderr.decode(), always=True)
         result.check_returncode()
 
         return obj_file, True
@@ -139,8 +140,10 @@ def main(exclude_args: List[str]):
             print_if_verbose(f'Skipping creating the executable since nothing was recompiled')
         update_progress_bar()
 
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        print()
         print('Something went wrong... :(')
+        print(e)
         return
 
     if not settings['verbose']:
